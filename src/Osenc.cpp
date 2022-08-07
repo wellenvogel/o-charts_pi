@@ -439,9 +439,20 @@ void Osenc_instream::Shutdown()
 }
 
 
+static wxString getTempFileName(){
+    static long tmpFileIndex=0;
+    //as all the chart opening ist single threaded we can
+    //safely operate on a static here
+    tmpFileIndex++;
+    wxString fname;
+    fname.Printf("%s%coexpf-%d-%ld",wxFileName::GetTempDir(),wxFileName::GetPathSeparator(),getpid(),tmpFileIndex);
+    return fname;
+}
+
 bool Osenc_instream::Open( unsigned char cmd, wxString senc_file_name, wxString crypto_key )
 {
     if(crypto_key.Length()){
+        dataReceived=false;
         fifo_msg msg;
 
         // Open the well known public FIFO for writing
@@ -459,16 +470,39 @@ bool Osenc_instream::Open( unsigned char cmd, wxString senc_file_name, wxString 
 
         // Create a unique name for the private (i.e. data) pipe, valid for this session
 
-        wxString tmp_file = wxFileName::CreateTempFileName( _T("") );
+        wxString tmp_file = getTempFileName();
         wxCharBuffer bufn = tmp_file.ToUTF8();
         if(bufn.data())
             strncpy(privatefifo_name, bufn.data(), sizeof(privatefifo_name));
 
             // Create the private FIFO
-        if(-1 == mkfifo(privatefifo_name, 0666)){
+        int res=0; 
+        res=mkfifo(privatefifo_name, 0666);   
+        if(res < 0){
+            //as the name contains our pid we should be able
+            //to safely delete and try again
+            //most probably this was some leftover from a crash
+            unlink(privatefifo_name);
+            res=mkfifo(privatefifo_name, 0666);
+        }
+        if (res < 0){
+            wxString msg;
+            msg.Printf("ERROR: creating private fifo %s for %s failed with error %d",
+                privatefifo_name,
+                senc_file_name,
+                errno);
+            wxLogMessage(msg);    
             if(g_debugLevel)printf("   mkfifo private failed: %s\n", privatefifo_name);
+            return false;
         }
         else{
+            /*
+            wxString msg;
+            msg.Printf("creating private fifo %s for %s OK",
+                privatefifo_name,
+                senc_file_name);
+            wxLogMessage(msg);
+            */
             if(g_debugLevel)printf("   mkfifo OK: %s\n", privatefifo_name);
         }
 
@@ -485,14 +519,14 @@ bool Osenc_instream::Open( unsigned char cmd, wxString senc_file_name, wxString 
 
         msg.cmd = cmd;
 
-        write(publicfifo, (char*) &msg, sizeof(msg));
 
         // Open the private FIFO for reading to get output of command
         // from the server.
-        if((privatefifo = open(privatefifo_name, O_RDONLY) ) == -1) {
+        if((privatefifo = open(privatefifo_name, O_RDONLY|O_NONBLOCK) ) == -1) {
             wxLogMessage(_T("oesenc_pi: Could not open private pipe"));
             return false;
         }
+        write(publicfifo, (char*) &msg, sizeof(msg));
         return true;
     }
     else{                        // not encrypted
@@ -519,17 +553,38 @@ Osenc_instream &Osenc_instream::Read(void *buffer, size_t size)
             do{
                 size_t bytes_to_read = MIN(remains, max_read);
 
-                size_t bytesRead = read(privatefifo, bufRun, bytes_to_read );
+                ssize_t bytesRead = read(privatefifo, bufRun, bytes_to_read );
+                if (bytesRead < 0){
+                    if (errno == EAGAIN){
+                        //we consider this as a writer being connected
+                        dataReceived=true;
+                        //we could do better here with select
+                        wxMilliSleep(1);
+                        continue;
+                    }
+                    wxString msg;
+                    msg.Printf("ERROR: reading private fifo %s : %d",
+                        privatefifo_name,
+                        errno
+                    );
+                    wxLogMessage(msg);
+                    break;
+                }
 
                 // Server may not have opened the Write end of the FIFO yet
                 if(bytesRead == 0){
-//                    printf("miss %d %d %d\n", nLoop, bytes_to_read, size);
+                    if (dataReceived){
+                        //if we ever received data there is no need to wait any more
+                        break;
+                    }
+                    //initially we wait for the writer to connect
                     nLoop --;
                     wxMilliSleep(1);
                 }
-                else
+                else{
                     nLoop = MAX_TRIES;
-
+                    dataReceived=true;
+                }
                 remains -= bytesRead;
                 bufRun += bytesRead;
                 totalBytesRead += bytesRead;
