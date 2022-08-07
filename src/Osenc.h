@@ -691,6 +691,7 @@ public:
     bool IsOk();
     bool isAvailable(wxString user_key);
     void Shutdown();
+    long BytesRead(){return m_totalBytesRead;}
     
 private:
     int privatefifo; // file descriptor to read-end of PRIVATE
@@ -699,6 +700,7 @@ private:
     char privatefifo_name[256];
     bool m_OK;
     int m_lastBytesRead, m_lastBytesReq;
+    long m_totalBytesRead=0;
     
     #ifdef __WXMSW__    
     HANDLE hPipe; 

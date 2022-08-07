@@ -4534,6 +4534,12 @@ int s52plib::RenderLS( ObjRazRules *rzRules, Rules *rules, ViewPort *vp )
 // Line Simple Style
 int s52plib::RenderLSLegacy( ObjRazRules *rzRules, Rules *rules, ViewPort *vp )
 {
+    wxString msg;
+    msg.Printf(_T("RenderLSLegacy(call):  %s %d  "), rzRules->obj->FeatureName, rzRules->obj->Index);
+    if(rzRules->obj->m_chart_context->chart){
+        msg += rzRules->obj->m_chart_context->chart->GetFullPath();
+    }
+    wxLogMessage(msg);
     if( !rzRules->obj->m_chart_context->chart )
         return RenderLSPlugIn( rzRules, rules, vp );
 
@@ -4697,7 +4703,15 @@ int s52plib::RenderLSLegacy( ObjRazRules *rzRules, Rules *rules, ViewPort *vp )
         for( int iseg = 0; iseg < rzRules->obj->m_n_lsindex; iseg++ ) {
             int seg_index = iseg * 3;
             index_run = &rzRules->obj->m_lsindex_array[seg_index];
-
+            if (!index_run){
+                wxString msg;
+                msg.Printf(_T("RenderLSLegacy(invalid index_array):  %s %d  "), rzRules->obj->FeatureName, rzRules->obj->Index);
+                if(rzRules->obj->m_chart_context->chart){
+                    msg += rzRules->obj->m_chart_context->chart->GetFullPath();
+                }
+                wxLogMessage(msg);
+                break;
+            }
             //  Get first connected node
             unsigned int inode = *index_run++;
 

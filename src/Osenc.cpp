@@ -465,10 +465,17 @@ bool Osenc_instream::Open( unsigned char cmd, wxString senc_file_name, wxString 
             strncpy(privatefifo_name, bufn.data(), sizeof(privatefifo_name));
 
             // Create the private FIFO
+        unlink(privatefifo_name);    
         if(-1 == mkfifo(privatefifo_name, 0666)){
+            wxString msg;
+            msg.Printf("creating private fifo %s for %s failed: %d",privatefifo_name,senc_file_name, errno);
+            wxLogMessage(msg);
             if(g_debugLevel)printf("   mkfifo private failed: %s\n", privatefifo_name);
         }
         else{
+            wxString msg;
+            msg.Printf("creating private fifo %s for %s OK",privatefifo_name,senc_file_name);
+            wxLogMessage(msg);
             if(g_debugLevel)printf("   mkfifo OK: %s\n", privatefifo_name);
         }
 
@@ -489,7 +496,7 @@ bool Osenc_instream::Open( unsigned char cmd, wxString senc_file_name, wxString 
 
         // Open the private FIFO for reading to get output of command
         // from the server.
-        if((privatefifo = open(privatefifo_name, O_RDONLY) ) == -1) {
+        if((privatefifo = open(privatefifo_name, O_RDONLY|O_NONBLOCK) ) == -1) {
             wxLogMessage(_T("oesenc_pi: Could not open private pipe"));
             return false;
         }
@@ -516,11 +523,21 @@ Osenc_instream &Osenc_instream::Read(void *buffer, size_t size)
             char *bufRun = (char *)buffer;
             size_t totalBytesRead = 0;
             int nLoop = MAX_TRIES;
+            size_t bytes_to_read=0;
             do{
-                size_t bytes_to_read = MIN(remains, max_read);
+                bytes_to_read = MIN(remains, max_read);
 
-                size_t bytesRead = read(privatefifo, bufRun, bytes_to_read );
-
+                ssize_t bytesRead = read(privatefifo, bufRun, bytes_to_read );
+                if (bytesRead < 0){
+                    if (errno == EAGAIN){
+                        wxMilliSleep(5);
+                        continue;
+                    }
+                    else{
+                        wxLogMessage("Osenc read error");
+                        break;
+                    }
+                }
                 // Server may not have opened the Write end of the FIFO yet
                 if(bytesRead == 0){
 //                    printf("miss %d %d %d\n", nLoop, bytes_to_read, size);
@@ -529,15 +546,21 @@ Osenc_instream &Osenc_instream::Read(void *buffer, size_t size)
                 }
                 else
                     nLoop = MAX_TRIES;
-
+                
                 remains -= bytesRead;
                 bufRun += bytesRead;
                 totalBytesRead += bytesRead;
             } while( (remains > 0) && (nLoop) );
-
             m_OK = (totalBytesRead == size);
             m_lastBytesRead = totalBytesRead;
             m_lastBytesReq = size;
+            m_totalBytesRead += totalBytesRead;
+            if (! m_OK){
+                wxString msg;
+                msg.Printf("Read: only read %ld bytes of %ld (nloop=%d, total=%ld, lastReq=%ld, errno=%d)",
+                    (long)totalBytesRead,(long)size,nLoop,(long)m_totalBytesRead,(long)bytes_to_read,errno);
+                wxLogMessage(msg);
+            }
         }
 
         return *this;
@@ -1296,6 +1319,9 @@ int Osenc::ingest200(const wxString &senc_file_name,
 
         fpx.Read(&record, sizeof(OSENC_Record_Base));
         if(!fpx.IsOk()){
+            wxString msg;
+            msg.Printf("Ingest200: unable to read header: %s",ifs);
+            wxLogMessage(msg);
             dun = 1;
             break;
         }
@@ -1309,19 +1335,33 @@ int Osenc::ingest200(const wxString &senc_file_name,
         //  Either way, we are finished reading.
 
         if((unsigned long)(record.record_length)  > 4000000 ){
+            wxString msg;
+            msg.Printf("Ingest200: record to large: %s",ifs);
+            wxLogMessage(msg);
             dun = 1;
             break;
         }
 
         // This is the normal EOF condition
         if (record.record_type == 0){
+          wxString msg;
+          msg.Printf("Ingest200: normal exit: %s",ifs);
+          wxLogMessage(msg);  
           dun=1;
           break;
         }
         else if (record.record_length < sizeof(OSENC_Record_Base)){
+          wxString msg;
+          msg.Printf("Ingest200: record to short: %s",ifs);
+          wxLogMessage(msg);  
           dun=1;        // This is an error condition, sometimes found at EOF.
           break;
         }
+#define CHECK_LEN(type) if ((record.record_length - sizeof(OSENC_Record_Base)) < sizeof(type)) \
+    { wxString msg; \
+      msg.Printf("invalid len for %s at byte %ld (expected %ld, current %ld)"\
+      ,#type,fpx.BytesRead(),(long)sizeof(type),(long)(record.record_length - sizeof(OSENC_Record_Base))); \
+      wxLogMessage(msg); }
 
         switch( record.record_type){
 
@@ -1425,6 +1465,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
+                CHECK_LEN(_OSENC_EXTENT_Record_Payload);
                 _OSENC_EXTENT_Record_Payload *pPayload = (_OSENC_EXTENT_Record_Payload *)buf;
                 m_extent.NLAT = pPayload->extent_nw_lat;
                 m_extent.SLAT = pPayload->extent_se_lat;
@@ -1465,7 +1506,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                CHECK_LEN(_OSENC_Feature_Identification_Record_Payload);
                 // Starting definition of a new feature
                 _OSENC_Feature_Identification_Record_Payload *pPayload = (_OSENC_Feature_Identification_Record_Payload *)buf;
 
@@ -1496,7 +1537,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                //CHECK_LEN(OSENC_Attribute_Record_Payload);
                 // Get the payload
                 OSENC_Attribute_Record_Payload *pPayload = (OSENC_Attribute_Record_Payload *)buf;
 
@@ -1572,7 +1613,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                CHECK_LEN(_OSENC_PointGeometry_Record_Payload);
                 // Get the payload
                 _OSENC_PointGeometry_Record_Payload *pPayload = (_OSENC_PointGeometry_Record_Payload *)buf;
 
@@ -1589,7 +1630,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                CHECK_LEN(_OSENC_AreaGeometry_Record_Payload);
                 // Get the payload
                 _OSENC_AreaGeometry_Record_Payload *pPayload = (_OSENC_AreaGeometry_Record_Payload *)buf;
 
@@ -1634,7 +1675,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                CHECK_LEN(_OSENC_AreaGeometryExt_Record_Payload);
                 // Get the payload
                 _OSENC_AreaGeometryExt_Record_Payload *pPayload = (_OSENC_AreaGeometryExt_Record_Payload *)buf;
 
@@ -1680,7 +1721,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                CHECK_LEN(_OSENC_LineGeometry_Record_Payload);
                 // Get the payload & parse it
                 _OSENC_LineGeometry_Record_Payload *pPayload = (_OSENC_LineGeometry_Record_Payload *)buf;
 
@@ -1700,7 +1741,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
                     dun = 1; break;
                 }
-
+                CHECK_LEN(OSENC_MultipointGeometry_Record_Payload);
                 // Get the payload & parse it
                 OSENC_MultipointGeometry_Record_Payload *pPayload = (OSENC_MultipointGeometry_Record_Payload *)buf;
 
@@ -1728,6 +1769,9 @@ int Osenc::ingest200(const wxString &senc_file_name,
             {
                 unsigned char *buf = getBuffer( record.record_length - sizeof(OSENC_Record_Base));
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
+                    wxString msg;
+                    msg.Printf("Ingest200: VECTOR_EDGE_NODE_TABLE_RECORD error: %s",ifs);
+                    wxLogMessage(msg);
                     dun = 1; break;
                 }
 
@@ -1778,6 +1822,9 @@ int Osenc::ingest200(const wxString &senc_file_name,
             {
                 unsigned char *buf = getBuffer( record.record_length - sizeof(OSENC_Record_Base));
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
+                    wxString msg;
+                    msg.Printf("Ingest200: VECTOR_EDGE_NODE_TABLE_EXT_RECORD error: %s",ifs);
+                    wxLogMessage(msg);
                     dun = 1; break;
                 }
 
@@ -1835,6 +1882,9 @@ int Osenc::ingest200(const wxString &senc_file_name,
                 int buf_len = record.record_length - sizeof(OSENC_Record_Base);
                 unsigned char *buf = getBuffer( buf_len);
                 if(!fpx.Read(buf, buf_len).IsOk()){
+                    wxString msg;
+                    msg.Printf("Ingest200: VECTOR_CONNECTED_NODE_TABLE_RECORD error: %s",ifs);
+                    wxLogMessage(msg);
                     dun = 1; break;
                 }
 
@@ -1876,9 +1926,12 @@ int Osenc::ingest200(const wxString &senc_file_name,
             {
                 unsigned char *buf = getBuffer( record.record_length - sizeof(OSENC_Record_Base));
                 if(!fpx.Read(buf, record.record_length - sizeof(OSENC_Record_Base)).IsOk()){
+                    wxString msg;
+                    msg.Printf("Ingest200: VECTOR_CONNECTED_NODE_TABLE_EXT_RECORD error: %s",ifs);
+                    wxLogMessage(msg);
                     dun = 1; break;
                 }
-
+                CHECK_LEN(OSENC_VCT_RecordExt_Payload);
                 OSENC_VCT_RecordExt_Payload *pRec = (OSENC_VCT_RecordExt_Payload *)buf;
                 double scaler = pRec->scaleFactor;
 
@@ -1959,6 +2012,9 @@ int Osenc::ingest200(const wxString &senc_file_name,
 
     }
 
+    wxString msg;
+    msg.Printf("ingest200 finished with record %d, len %d totalBytes %lld %s",(int)record.record_type, (int)record.record_length,(long long)fpx.BytesRead(), ifs);
+    wxLogMessage(msg);
     if(g_debugLevel) wxLogMessage(_T("ingest200 SENC Ingested OK"));
 
     return ret_val;

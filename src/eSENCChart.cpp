@@ -8046,6 +8046,12 @@ void eSENCChart::AssembleLineGeometry( void )
                         }
                     }
 
+                    else{
+                       wxString msg;
+                       msg.Printf("AssembleLineGeom missing inode %d",inode);
+                       msg+=GetFullPath();
+                       wxLogMessage(msg); 
+                    }
                     if(pedge && pedge->nCount){
                         line_segment_element *pls = new line_segment_element;
                         pls->next = 0;
@@ -8185,7 +8191,12 @@ void eSENCChart::AssembleLineGeometry( void )
                             }
                         }
                     }
-
+                    else{
+                      wxString msg;
+                       msg.Printf("AssembleLineGeom missing epnode %d",enode);
+                       msg+=GetFullPath();
+                       wxLogMessage(msg);   
+                    }
 
                 }  // for
 
@@ -8195,7 +8206,13 @@ void eSENCChart::AssembleLineGeometry( void )
                 // we are all finished with the line segment index array, per object
                 free(obj->m_lsindex_array);
                 obj->m_lsindex_array = NULL;
-
+                if (obj->m_n_lsindex && ! obj->m_ls_list){
+                    wxString msg;
+                    msg.Printf(_T("AssembleLineGeometries invalid result (index %d != 0, list==NULL):  %s %d  "), obj->m_n_lsindex,obj->FeatureName, obj->Index);
+                    msg += GetFullPath();
+                    wxLogMessage(msg);    
+                    obj->m_n_lsindex=0;
+                }
                 top = top->next;
             }
         }
