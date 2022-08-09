@@ -4399,7 +4399,7 @@ int eSENCChart::BuildRAZFromSENCFile( const wxString& FullPath, wxString& Key, i
     VCs.clear();
 
     //Walk the vector of S57Objs, associating LUPS, instructions, etc...
-
+    bool hasLineGeometryErrors=false;
     for(unsigned int i=0 ; i < Objects.size() ; i++){
 
         S57Obj *obj = Objects[i];
@@ -4640,7 +4640,7 @@ int eSENCChart::BuildRAZFromSENCFile( const wxString& FullPath, wxString& Key, i
 
         if(g_debugLevel) wxLogMessage(_T("BuildRAZFromSENCFile:  Start AssembleLineGeometry"));
 
-        AssembleLineGeometry();
+        if (!AssembleLineGeometry()) hasLineGeometryErrors=true;
 
             //  Set up the chart context
         m_this_chart_context = (chart_context *)calloc( sizeof(chart_context), 1);
@@ -4663,7 +4663,14 @@ int eSENCChart::BuildRAZFromSENCFile( const wxString& FullPath, wxString& Key, i
         if(g_debugLevel) wxLogMessage(_T("BuildRAZFromSENCFile:  AssembleLineGeometry OK"));
 
         if(g_debugLevel) wxLogMessage(_T("BuildRAZFromSENCFile Return OK"));
-
+        if (hasLineGeometryErrors){
+            wxString msg;
+            wxString records=sencfile->GetRecordList();
+            if (records != wxEmptyString){
+                msg.Printf("RecordList: %s",records);
+                wxLogMessage(msg);
+            }
+        }
         delete sencfile;
         return ret_val;
 }
@@ -7882,10 +7889,10 @@ typedef struct segment_pair{
 }_segment_pair;
 
 
-void eSENCChart::AssembleLineGeometry( void )
+bool eSENCChart::AssembleLineGeometry( void )
 {
     if(g_debugLevel) wxLogMessage(_T("AssembleLineGeometry:  Start "));
-
+    bool rt=true;
 #ifndef __WXMSW__
     wxString msgss;
     msgss.Printf(_T("%zd"), m_ve_hash.size());
@@ -8045,13 +8052,6 @@ void eSENCChart::AssembleLineGeometry( void )
 
                         }
                     }
-
-                    else{
-                       wxString msg;
-                       msg.Printf("AssembleLineGeom missing inode %d",inode);
-                       msg+=GetFullPath();
-                       wxLogMessage(msg); 
-                    }
                     if(pedge && pedge->nCount){
                         line_segment_element *pls = new line_segment_element;
                         pls->next = 0;
@@ -8191,12 +8191,6 @@ void eSENCChart::AssembleLineGeometry( void )
                             }
                         }
                     }
-                    else{
-                      wxString msg;
-                       msg.Printf("AssembleLineGeom missing epnode %d",enode);
-                       msg+=GetFullPath();
-                       wxLogMessage(msg);   
-                    }
 
                 }  // for
 
@@ -8212,6 +8206,7 @@ void eSENCChart::AssembleLineGeometry( void )
                     msg += GetFullPath();
                     wxLogMessage(msg);    
                     obj->m_n_lsindex=0;
+                    rt=false;
                 }
                 top = top->next;
             }
@@ -8334,7 +8329,7 @@ void eSENCChart::AssembleLineGeometry( void )
 //    printf("time3 %f\n", sw.GetTime());
 
 
-
+    return rt;
 
 }
 

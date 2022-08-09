@@ -267,7 +267,7 @@ protected:
       void              FreeObjectsAndRules();
 
       void              BuildLineVBO( void );
-      void              AssembleLineGeometry( void );
+      bool              AssembleLineGeometry( void );
       void              UpdateLUPs( eSENCChart *pOwner );
 
         // Rendering

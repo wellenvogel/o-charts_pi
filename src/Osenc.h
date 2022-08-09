@@ -637,7 +637,10 @@ private:
     unsigned char         m_read_esenc_cmd;
     unsigned char         m_read_esencHdr_cmd;
     int                   m_ctype;
-    
+    wxString              m_recordList;
+
+    public:
+    wxString              GetRecordList(){return m_recordList;}
  
 };
 
@@ -692,6 +695,7 @@ public:
     bool isAvailable(wxString user_key);
     void Shutdown();
     long BytesRead(){return m_totalBytesRead;}
+    int  LastRead(){ return m_lastBytesRead;}
     
 private:
     int privatefifo; // file descriptor to read-end of PRIVATE
