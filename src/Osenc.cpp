@@ -1377,7 +1377,7 @@ int Osenc::ingest200(const wxString &senc_file_name,
         // On linux type systems, the buffer alloc succeeds, but then the read file fails, as expected, due to EOF on the input file.
         //  Either way, we are finished reading.
 
-        if((unsigned long)(record.record_length)  > 4000000 ){
+        if((unsigned long)(record.record_length)  > 20000000 ){
             wxString msg;
             msg.Printf("Ingest200: record to large: %s",ifs);
             wxLogMessage(msg);
