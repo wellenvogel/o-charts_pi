@@ -696,6 +696,7 @@ public:
 private:
     int privatefifo; // file descriptor to read-end of PRIVATE
     int publicfifo; // file descriptor to write-end of PUBLIC 
+    bool dataReceived=false;
     
     char privatefifo_name[256];
     bool m_OK;
