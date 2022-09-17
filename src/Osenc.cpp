@@ -1402,13 +1402,14 @@ int Osenc::ingest200(const wxString &senc_file_name,
       msg.Printf("invalid len for %s at byte %ld (expected %ld, current %ld)"\
       ,#type,fpx.BytesRead(),(long)sizeof(type),(long)(record.record_length - sizeof(OSENC_Record_Base))); \
       wxLogMessage(msg); }
-
+        /*
         wxString recordInfo;
         recordInfo.Printf("%d:%d:%ld,",
             (int)record.record_type,
             record.record_length,
             fpx.BytesRead()-(long)sizeof(OSENC_Record_Base));
         m_recordList.Append(recordInfo);    
+        */
         switch( record.record_type){
 
             case HEADER_SENC_VERSION:
